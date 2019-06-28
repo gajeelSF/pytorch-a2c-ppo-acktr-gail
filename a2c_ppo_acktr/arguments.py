@@ -149,6 +149,11 @@ def get_args():
         action='store_true',
         default=False,
         help='use a linear schedule on the learning rate')
+    parser.add_argument(
+        '--num_actors',
+        action='store_true',
+        default=3,
+        help='use a linear schedule on the learning rate')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()

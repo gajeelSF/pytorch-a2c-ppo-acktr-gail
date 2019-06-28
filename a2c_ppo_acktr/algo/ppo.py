@@ -49,21 +49,27 @@ class PPO():
                     advantages, self.num_mini_batch)
 
             for sample in data_generator:
-                obs_batch, recurrent_hidden_states_batch, actions_batch, \
-                   value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, \
+                obs_batch, recurrent_hidden_states_batch, actions_batch,choices_batch, \
+                   value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, old_choice_log_probs_batch,\
                         adv_targ = sample
 
                 # Reshape to do in a single forward pass for all steps
-                values, action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
+                values, action_log_probs,choice_log_probs, dist_entropy = self.actor_critic.evaluate_actions(
                     obs_batch, recurrent_hidden_states_batch, masks_batch,
-                    actions_batch)
+                    actions_batch, choices_batch)
 
-                ratio = torch.exp(action_log_probs -
-                                  old_action_log_probs_batch)
-                surr1 = ratio * adv_targ
-                surr2 = torch.clamp(ratio, 1.0 - self.clip_param,
+                ratio_action = torch.exp(action_log_probs - old_action_log_probs_batch)
+                ratio_choice = torch.exp(choice_log_probs - old_choice_log_probs_batch)
+
+                surr1 = ratio_action * ratio_choice * adv_targ
+                surr2 = torch.clamp(ratio_action, 1.0 - self.clip_param,
+                                           1.0 + self.clip_param) * ratio_choice * adv_targ
+                surr3 = torch.clamp(ratio_choice, 1.0 - self.clip_param,
+                                    1.0 + self.clip_param) * ratio_action * adv_targ
+                surr4 = torch.clamp(ratio_choice, 1.0 - self.clip_param,
+                                    1.0 + self.clip_param) * torch.clamp(ratio_action, 1.0 - self.clip_param,
                                     1.0 + self.clip_param) * adv_targ
-                action_loss = -torch.min(surr1, surr2).mean()
+                action_loss = -torch.min(torch.min(torch.min(surr1, surr2), surr3), surr4).mean()
 
                 if self.use_clipped_value_loss:
                     value_pred_clipped = value_preds_batch + \
