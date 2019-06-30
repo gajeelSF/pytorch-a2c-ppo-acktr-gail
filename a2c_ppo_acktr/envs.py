@@ -3,6 +3,8 @@ import os
 import gym
 import numpy as np
 import torch
+import random
+
 from gym.spaces.box import Box
 
 from baselines import bench
@@ -24,7 +26,7 @@ except ImportError:
     pass
 
 try:
-    import pybullet_envs
+    import pybullet_envs    
 except ImportError:
     pass
 
@@ -73,7 +75,89 @@ def make_env(env_id, seed, rank, log_dir, allow_early_resets):
 
     return _thunk
 
+def make_heavy_env(env_id, seed, rank, log_dir, allow_early_resets):
+    def _thunk():
+        if env_id.startswith("dm"):
+            _, domain, task = env_id.split('.')
+            env = dm_control2gym.make(domain_name=domain, task_name=task)
+        else:
+            env = gym.make(env_id)
 
+            bm = np.array(env.model.body_mass)
+            gs = np.array(env.model.geom_size)
+            bm[1] = 7
+            gs[1][0] = 0.1
+            env.model.body_mass[1]= 7 
+            env.model.geom_size[1][0] = 0.1
+
+        is_atari = hasattr(gym.envs, 'atari') and isinstance(
+            env.unwrapped, gym.envs.atari.atari_env.AtariEnv)
+        if is_atari:
+            env = make_atari(env_id)
+
+        env.seed(seed + rank)
+
+        obs_shape = env.observation_space.shape
+
+        if str(env.__class__.__name__).find('TimeLimit') >= 0:
+            env = TimeLimitMask(env)
+
+        if log_dir is not None:
+            env = bench.Monitor(
+                env,
+                os.path.join(log_dir, str(rank)),
+                allow_early_resets=allow_early_resets)
+
+        if is_atari:
+            if len(env.observation_space.shape) == 3:
+                env = wrap_deepmind(env)
+        elif len(env.observation_space.shape) == 3:
+            raise NotImplementedError(
+                "CNN models work only for atari,\n"
+                "please use a custom wrapper for a custom pixel input env.\n"
+                "See wrap_deepmind for an example.")
+
+        # If the input has shape (W,H,3), wrap for PyTorch convolutions
+        obs_shape = env.observation_space.shape
+        if len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
+            env = TransposeImage(env, op=[2, 0, 1])
+
+        return env
+
+    return _thunk
+
+def make_heavy_vec_envs(env_name,
+                  seed,
+                  num_processes,
+                  gamma,
+                  log_dir,
+                  device,
+                  allow_early_resets,
+                  num_frame_stack=None):
+    envs = [
+        make_heavy_env(env_name, seed, i, log_dir, allow_early_resets)
+        for i in range(num_processes)
+    ]
+
+    if len(envs) > 1:
+        envs = ShmemVecEnv(envs, context='fork')
+    else:
+        envs = DummyVecEnv(envs)
+
+    if len(envs.observation_space.shape) == 1:
+        if gamma is None:
+            envs = VecNormalize(envs, ret=False)
+        else:
+            envs = VecNormalize(envs, gamma=gamma)
+
+    envs = VecPyTorch(envs, device)
+
+    if num_frame_stack is not None:
+        envs = VecPyTorchFrameStack(envs, num_frame_stack, device)
+    elif len(envs.observation_space.shape) == 3:
+        envs = VecPyTorchFrameStack(envs, 4, device)
+
+    return envs
 def make_vec_envs(env_name,
                   seed,
                   num_processes,
@@ -183,6 +267,15 @@ class VecPyTorch(VecEnvWrapper):
         reward = torch.from_numpy(reward).unsqueeze(dim=1).float()
         return obs, reward, done, info
 
+    def sample_weight(self):
+        mass = random.uniform(2.0,7.0)
+        print("-----------------------------------mass: {}------------------------------------------------".format(mass))
+
+        size = mass / 7.0 * 0.1
+        for i in range(len(self.venv.venv.envs)):
+            self.venv.venv.envs[i].model.body_mass[1] = mass
+            self.venv.venv.envs[i].model.geom_size[1][0] = size
+
 
 class VecNormalize(VecNormalize_):
     def __init__(self, *args, **kwargs):
@@ -250,3 +343,15 @@ class VecPyTorchFrameStack(VecEnvWrapper):
 
     def close(self):
         self.venv.close()
+
+    def sample_weight(self):
+        mass = random(2.0,7.0)
+        
+        print("-----------------------------------mass: {}------------------------------------------------".format(mass))
+        size = mass / 7.0 * 0.1
+        for i in range(len(self.venv.venv.envs)):
+            self.venv.venv.envs[i].model.body_mass[1] = mass
+            self.venv.venv.envs[i].model.geom_size[1][0] = size
+
+
+

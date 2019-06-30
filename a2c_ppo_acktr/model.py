@@ -257,13 +257,20 @@ class FCNBase(NNBase):
             init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
 
         self.actors = []
-
+        '''
         for i in range(self.num_actors):
             self.actors.append(
             nn.Sequential(
                 init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
                 init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
             )
+        '''
+        for i in range(self.num_actors):
+            self.actors.append(
+           nn.Sequential(
+            init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
+           )  
 
         self.critic = nn.Sequential(
             init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),

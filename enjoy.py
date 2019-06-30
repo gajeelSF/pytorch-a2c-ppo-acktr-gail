@@ -45,6 +45,8 @@ env = make_vec_envs(
     device='cpu',
     allow_early_resets=False)
 
+env.sample_weight()
+
 # Get a render function
 render_func = get_render_func(env)
 
@@ -73,23 +75,34 @@ if args.env_name.find('Bullet') > -1:
     for i in range(p.getNumBodies()):
         if (p.getBodyInfo(i)[0].decode() == "torso"):
             torsoId = i
+rewards = []
+eps_reward = 0
+for i in range(10):
+    while True:
+        with torch.no_grad():
+            value, action, choice, action_log_prob,choice_log_prob, recurrent_hidden_states = actor_critic.act(
+                obs, recurrent_hidden_states, masks, deterministic=args.det)
 
-while True:
-    with torch.no_grad():
-        value, action, _, recurrent_hidden_states = actor_critic.act(
-            obs, recurrent_hidden_states, masks, deterministic=args.det)
+        # Obser reward and next obs
+        obs, reward, done, _ = env.step(action)
+        eps_reward += reward
 
-    # Obser reward and next obs
-    obs, reward, done, _ = env.step(action)
+        if done:
+            print("episode reward: {}".format(eps_reward))
+            rewards.append(eps_reward)
+            eps_reward = 0
+            break
 
-    masks.fill_(0.0 if done else 1.0)
+        masks.fill_(0.0 if done else 1.0)
 
-    if args.env_name.find('Bullet') > -1:
-        if torsoId > -1:
-            distance = 5
-            yaw = 0
-            humanPos, humanOrn = p.getBasePositionAndOrientation(torsoId)
-            p.resetDebugVisualizerCamera(distance, yaw, -20, humanPos)
+        if args.env_name.find('Bullet') > -1:
+            if torsoId > -1:
+                distance = 5
+                yaw = 0
+                humanPos, humanOrn = p.getBasePositionAndOrientation(torsoId)
+                p.resetDebugVisualizerCamera(distance, yaw, -20, humanPos)
 
-    if render_func is not None:
-        render_func('human')
+        if render_func is not None:
+            render_func('human')
+
+print("average: {}".format(np.mean(np.asarray(rewards))))

@@ -151,9 +151,14 @@ def get_args():
         help='use a linear schedule on the learning rate')
     parser.add_argument(
         '--num_actors',
-        action='store_true',
+        type=int,
         default=3,
-        help='use a linear schedule on the learning rate')
+        help='number of actors')
+    parser.add_argument(
+        '--num-tasks',
+        type=int,
+        default=5,
+        help='number of random domains')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
