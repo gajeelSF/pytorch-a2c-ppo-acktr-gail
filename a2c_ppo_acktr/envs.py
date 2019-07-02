@@ -15,6 +15,8 @@ from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
 from baselines.common.vec_env.vec_normalize import \
     VecNormalize as VecNormalize_
 
+from a2c_ppo_acktr.param_manager import *
+
 try:
     import dm_control2gym
 except ImportError:
@@ -26,7 +28,7 @@ except ImportError:
     pass
 
 try:
-    import pybullet_envs    
+    import pybullet_envs
 except ImportError:
     pass
 
@@ -87,7 +89,7 @@ def make_heavy_env(env_id, seed, rank, log_dir, allow_early_resets):
             gs = np.array(env.model.geom_size)
             bm[1] = 7
             gs[1][0] = 0.1
-            env.model.body_mass[1]= 7 
+            env.model.body_mass[1]= 7
             env.model.geom_size[1][0] = 0.1
 
         is_atari = hasattr(gym.envs, 'atari') and isinstance(
@@ -247,7 +249,12 @@ class VecPyTorch(VecEnvWrapper):
         """Return only every `skip`-th frame"""
         super(VecPyTorch, self).__init__(venv)
         self.device = device
+
+        self.param_managers = []
+        for i in range(len(self.venv.venv.envs)):
+            self.param_managers.append(Walker2dParamManager(self.venv.venv.envs[i]))
         # TODO: Fix data types
+
 
     def reset(self):
         obs = self.venv.reset()
@@ -267,15 +274,12 @@ class VecPyTorch(VecEnvWrapper):
         reward = torch.from_numpy(reward).unsqueeze(dim=1).float()
         return obs, reward, done, info
 
-    def sample_weight(self):
-        mass = random.uniform(2.0,7.0)
-        print("-----------------------------------mass: {}------------------------------------------------".format(mass))
+    def sample_params(self):
+        xs = self.param_managers[0].resample_parameters()
+        for i in range(len(self.param_managers)):
+            self.param_managers[i].set_simulator_parameters(xs)
 
-        size = mass / 7.0 * 0.1
-        for i in range(len(self.venv.venv.envs)):
-            self.venv.venv.envs[i].model.body_mass[1] = mass
-            self.venv.venv.envs[i].model.geom_size[1][0] = size
-
+        print(self.param_managers[0].get_params())
 
 class VecNormalize(VecNormalize_):
     def __init__(self, *args, **kwargs):
@@ -346,12 +350,9 @@ class VecPyTorchFrameStack(VecEnvWrapper):
 
     def sample_weight(self):
         mass = random(2.0,7.0)
-        
+
         print("-----------------------------------mass: {}------------------------------------------------".format(mass))
         size = mass / 7.0 * 0.1
         for i in range(len(self.venv.venv.envs)):
             self.venv.venv.envs[i].model.body_mass[1] = mass
             self.venv.venv.envs[i].model.geom_size[1][0] = size
-
-
-
