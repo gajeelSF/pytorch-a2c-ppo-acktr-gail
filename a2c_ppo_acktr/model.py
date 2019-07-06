@@ -26,16 +26,20 @@ class Policy(nn.Module):
                 raise NotImplementedError
 
         self.base = FCNBase(obs_shape[0], num_actors,**base_kwargs)
+        self.dists = []
 
         if action_space.__class__.__name__ == "Discrete":
-            num_outputs = action_space.n
-            self.dist = Categorical(self.base.output_size, num_outputs)
+            self.num_outputs = action_space.n
+            for i in range(num_actors):
+                self.dists.append(Categorical(self.base.output_size, self.num_outputs))
         elif action_space.__class__.__name__ == "Box":
-            num_outputs = action_space.shape[0]
-            self.dist = DiagGaussian(self.base.output_size, num_outputs)
+            self.num_outputs = action_space.shape[0]
+            for i in range(num_actors):
+                self.dists.append(DiagGaussian(self.base.output_size, self.num_outputs))
         elif action_space.__class__.__name__ == "MultiBinary":
-            num_outputs = action_space.shape[0]
-            self.dist = Bernoulli(self.base.output_size, num_outputs)
+            self.num_outputs = action_space.shape[0]
+            for i in range(num_actors):
+                self.dists.append(Bernoulli(self.base.output_size, self.num_outputs))
         else:
             raise NotImplementedError
 
@@ -54,22 +58,22 @@ class Policy(nn.Module):
     def act(self, inputs,rnn_hxs, masks, deterministic=False):
         value, actors, cdist, choice, choice_log_prob,rnn_hxs  = self.base(inputs, rnn_hxs,masks)
 
-        hidden_actor = torch.empty(choice.shape[0], self.base.output_size)
-
+        hidden_actor = torch.empty(1, self.base.output_size)
+        actions = torch.empty(choice.shape[0],self.num_outputs)
+        action_log_probs = torch.empty(choice.shape[0])
         for i in range(0, inputs.shape[0]):
-            hidden_actor[i] = actors[choice[i]](inputs[i])
+            hidden_actor[0] = actors[choice[i]](inputs[i])
+            dist = self.dists[choice[i]](hidden_actor)
+            if deterministic:
+                action = dist.mode()
+            else:
+                action = dist.sample()
+            actions[i] = action
 
-        dist = self.dist(hidden_actor)
+            action_log_prob = dist.log_probs(action)
+            action_log_probs[i] = action_log_prob
 
-        if deterministic:
-            action = dist.mode()
-        else:
-            action = dist.sample()
-
-        action_log_probs = dist.log_probs(action)
-        dist_entropy = dist.entropy().mean() + cdist.entropy().mean()
-
-        return value, action, choice, action_log_probs, choice_log_prob, rnn_hxs
+        return value, actions, choice, action_log_probs, choice_log_prob, rnn_hxs
 
     def get_value(self, inputs, rnn_hxs, masks):
         value, _, _, _, _ ,_ = self.base(inputs, rnn_hxs, masks)
@@ -78,17 +82,21 @@ class Policy(nn.Module):
     def evaluate_actions(self, inputs,rnn_hxs, masks, action, choice):
         value, actors, cdist, _, _ ,_= self.base(inputs,rnn_hxs, masks)
 
-        hidden_actor = torch.empty(choice.shape[0], self.base.output_size)
-
+        hidden_actor = torch.empty(1, self.base.output_size)
+        action_log_probs = torch.empty(choice.shape[0],1)
+        dist_entropys = torch.empty(choice.shape[0],1)
 
         for i in range(0, inputs.shape[0]):
-            hidden_actor[i] = actors[choice[i]](inputs[i])
+            hidden_actor = actors[choice[i]](inputs[i])
 
-        dist = self.dist(hidden_actor)
-        action_log_probs = dist.log_probs(action)
+            dist = self.dists[choice[i]](hidden_actor.view(1,hidden_actor.shape[0]))
+            action_log_prob = dist.log_probs(action[i])
+            action_log_probs[i] = action_log_prob
+
+            dist_entropys[i] = dist.entropy()
 
         choice_log_probs = cdist.log_probs(choice)
-        dist_entropy = dist.entropy().mean() + cdist.entropy().mean()
+        dist_entropy = dist_entropys.mean() + cdist.entropy().mean()
 
         return value, action_log_probs, choice_log_probs, dist_entropy
 
@@ -270,7 +278,7 @@ class FCNBase(NNBase):
            nn.Sequential(
             init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)), nn.Tanh())
-           )  
+           )
 
         self.critic = nn.Sequential(
             init_(nn.Linear(num_inputs, hidden_size)), nn.Tanh(),
