@@ -45,7 +45,7 @@ env = make_vec_envs(
     device='cpu',
     allow_early_resets=False)
 
-env.sample_weight()
+env.sample_params()
 
 # Get a render function
 render_func = get_render_func(env)
