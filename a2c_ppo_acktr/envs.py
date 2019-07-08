@@ -281,6 +281,14 @@ class VecPyTorch(VecEnvWrapper):
 
         print(self.param_managers[0].get_params())
 
+    def sample_xs(self):
+        xs = self.param_managers[0].resample_parameters()
+        return xs
+
+    def set_params(self,xs):
+        for i in range(len(self.param_managers)):
+            self.param_managers[i].set_simulator_parameters(xs)
+
 class VecNormalize(VecNormalize_):
     def __init__(self, *args, **kwargs):
         super(VecNormalize, self).__init__(*args, **kwargs)

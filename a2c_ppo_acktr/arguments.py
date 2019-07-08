@@ -159,6 +159,16 @@ def get_args():
         type=int,
         default=5,
         help='number of random domains')
+    parser.add_argument(
+        '--num-rounds',
+        type=int,
+        default=10,
+        help='number of random domains')
+    parser.add_argument(
+        '--num-subiter',
+        type=int,
+        default=2e5,
+        help='number of random domains')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
